@@ -34,6 +34,8 @@
 
 #include <assert.h>
 
+#include <time.h>
+
 #include "librtmp/rtmp_sys.h"
 #include "librtmp/log.h"
 
@@ -152,6 +154,31 @@ static const AVal av_NetStream_Play_Complete = AVC("NetStream.Play.Complete");
 static const AVal av_NetStream_Play_Stop = AVC("NetStream.Play.Stop");
 
 static const char *cst[] = { "client", "server" };
+
+char *
+GetTimestamp()
+{
+  struct timespec ts_realtime;
+  struct tm tm_gmt;
+  static char *timestamp_format = "%Y-%m-%dT%H-%M-%S";
+
+  clock_gettime(CLOCK_REALTIME, &ts_realtime);
+  // tv_sec, tv_nsec
+  gmtime_r(&ts_realtime.tv_sec, &tm_gmt);
+
+  char *str_timestamp = calloc(sizeof(char), 64 + 10 + 1);
+  strftime(str_timestamp, 64, timestamp_format, &tm_gmt);
+
+  char *str_nanosecs = calloc(sizeof(char), 11);
+  snprintf(str_nanosecs, 11, ".%09ld", ts_realtime.tv_nsec);
+
+  printf("!! ns: %ld\n", ts_realtime.tv_nsec);
+
+  strncat(str_timestamp, str_nanosecs, 11);
+
+  return str_timestamp;
+}
+
 
 // Returns 0 for OK/Failed/error, 1 for 'Stop or Complete'
 int
@@ -358,20 +385,19 @@ ServeInvoke(STREAMING_SERVER *server, int which, RTMPPacket *pack, const char *b
           av.av_val++;
           av.av_len--;
         }
-      flen = av.av_len;
-      /* hope there aren't more than 255 dups */
-      if (count)
-        flen += 2;
-      file = malloc(flen+1);
+      char *timestamp_gmt = GetTimestamp();
+      flen = av.av_len + 1 + strlen(timestamp_gmt);
 
-      memcpy(file, av.av_val, av.av_len);
-      if (count)
-        sprintf(file+av.av_len, "%02x", count);
-      else
-        file[av.av_len] = '\0';
+      file = calloc(sizeof(char), flen+1);
+
+      snprintf(file, flen+1, "%s.%s", av.av_val, timestamp_gmt);
+
+      free(timestamp_gmt);
+
       for (p=file; *p; p++)
         if (*p == ':')
           *p = '_';
+
       RTMP_LogPrintf("Playpath: %.*s\nSaving as: %s\n",
         server->rc.Link.playpath.av_len, server->rc.Link.playpath.av_val,
         file);
